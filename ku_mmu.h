@@ -278,6 +278,7 @@ int ku_run_proc(char pid, void **ku_cr3) {
         void *addr = NULL;
         if (freelist_pop(&addr) != 0) {
             // TODO:: swap out
+            return -1;
         }
         task_struct* new_proc = (task_struct*) malloc(sizeof(task_struct));
         new_proc->pid = pid;
@@ -325,8 +326,36 @@ int ku_page_fault(char pid, char va) {
         // Allocate new page middle directory 
         void* new_pmd_addr = NULL;
         if (freelist_pop(&new_pmd_addr) != 0) {
-            // TODO: swap out
-            return -1;
+            // If no more space on memory
+            // Swap out existing page.
+            void *swap_page = NULL;
+            if (swap_freelist_pop(&swap_page)) {
+                // No more swap space 
+                // Error
+                // printf("error11\n");
+                return -1;
+            }
+
+            // printf("swap freelist: %p, %x\n", swap_page, *(int*)swap_page);
+            
+            char *mapped_pte_addr = mapping_pop();
+            // printf("mapping swap out: %p, %x\n", mapped_pte_addr, *mapped_pte_addr);
+            char mapped_pte = *mapped_pte_addr;
+            int mapped_page_pfn = (mapped_pte & 0xFC);
+            void *page_addr = pmem_space + mapped_page_pfn;
+            // printf("mapping swap out page: %p, %x, %p, %x\n", mapped_pte_addr, mapped_page_pfn, page_addr, *(int*)page_addr);
+
+            // memory page -> swap page
+            memcpy(swap_page, page_addr, PAGE_SIZE);
+            // set 0 on page
+            memset(page_addr, 0, PAGE_SIZE);
+
+            // swapped pte: 00000010
+            mapped_pte = ((swap_page - swap_space) >> 1) & 0xFE;
+            *mapped_pte_addr = mapped_pte; 
+            // printf("mapped_pte_addr: %p\n", mapped_pte_addr);
+            
+            new_pmd_addr = page_addr;
         }
         assert(((new_pmd_addr - pmem_space) & 0x03) == 0);
 
@@ -349,8 +378,36 @@ int ku_page_fault(char pid, char va) {
         // Allocate new page table
         void* new_pt_addr = NULL;
         if (freelist_pop(&new_pt_addr) != 0) {
-            // TODO: swap out
-            return -1;
+            // If no more space on memory
+            // Swap out existing page.
+            void *swap_page = NULL;
+            if (swap_freelist_pop(&swap_page)) {
+                // No more swap space 
+                // Error
+                // printf("error11\n");
+                return -1;
+            }
+
+            // printf("swap freelist: %p, %x\n", swap_page, *(int*)swap_page);
+            
+            char *mapped_pte_addr = mapping_pop();
+            // printf("mapping swap out: %p, %x\n", mapped_pte_addr, *mapped_pte_addr);
+            char mapped_pte = *mapped_pte_addr;
+            int mapped_page_pfn = (mapped_pte & 0xFC);
+            void *page_addr = pmem_space + mapped_page_pfn;
+            // printf("mapping swap out page: %p, %x, %p, %x\n", mapped_pte_addr, mapped_page_pfn, page_addr, *(int*)page_addr);
+
+            // memory page -> swap page
+            memcpy(swap_page, page_addr, PAGE_SIZE);
+            // set 0 on page
+            memset(page_addr, 0, PAGE_SIZE);
+
+            // swapped pte: 00000010
+            mapped_pte = ((swap_page - swap_space) >> 1) & 0xFE;
+            *mapped_pte_addr = mapped_pte; 
+            // printf("mapped_pte_addr: %p\n", mapped_pte_addr);
+            
+            new_pt_addr = page_addr;
         }
         assert(((new_pt_addr - pmem_space) & 0x03) == 0);
 
