@@ -39,10 +39,10 @@ typedef struct task_struct_list_node {
     struct task_struct *data;
     struct task_struct_list_node *next;
 } task_struct_list_node;
-task_struct_list_node *head;
+task_struct_list_node *ku_mmu_head;
 
 task_struct *task_struct_list_lookup(char pid) {
-    task_struct_list_node *curr = head;
+    task_struct_list_node *curr = ku_mmu_head;
     while (curr != NULL) {
         if (curr->data->pid == pid) 
             return curr->data;
@@ -52,13 +52,13 @@ task_struct *task_struct_list_lookup(char pid) {
     return NULL;
 }
 void task_struct_list_add(task_struct *new_task_struct) {
-    if (head == NULL) {
-        head = (task_struct_list_node*) malloc(sizeof(task_struct_list_node));
-        head->data = new_task_struct;
-        head->next = NULL;
+    if (ku_mmu_head == NULL) {
+        ku_mmu_head = (task_struct_list_node*) malloc(sizeof(task_struct_list_node));
+        ku_mmu_head->data = new_task_struct;
+        ku_mmu_head->next = NULL;
         return;
     }
-    task_struct_list_node *curr = head;
+    task_struct_list_node *curr = ku_mmu_head;
     while (curr->next != NULL) {
         curr = curr->next;
     }
@@ -70,7 +70,7 @@ void task_struct_list_add(task_struct *new_task_struct) {
 
 ///////////////////////////////////////////
 /* Memory space */
-void *pmem_space;
+void *ku_mmu_pmem_space;
 
 // Memory Freelist
 typedef struct freelist_node {
@@ -85,7 +85,7 @@ void freelist_init(int mem_size) {
     curr->next = NULL;
     for (int i = PAGE_SIZE; i < mem_size; i += PAGE_SIZE) {
         freelist_node *new_node = (freelist_node*) malloc(sizeof(freelist_node));
-        new_node->addr = pmem_space + i;
+        new_node->addr = ku_mmu_pmem_space + i;
         new_node->next = NULL;
         curr->next = new_node;
         curr = new_node;
@@ -113,33 +113,33 @@ typedef struct mapplinglist {
     struct mappinglist_node *head;
     struct mappinglist_node *tail;
 } mappinglist;
-mappinglist mapping;
+mappinglist ku_mmu_mapping;
 void mapping_init() {
-    mapping.head = NULL;
-    mapping.tail = NULL;
+    ku_mmu_mapping.head = NULL;
+    ku_mmu_mapping.tail = NULL;
 }
 void mapping_append(char *pte) {
     mappinglist_node *new_node = (mappinglist_node *)malloc(sizeof(mappinglist_node));
     new_node->pte = pte;
 
-    if (mapping.head == NULL) {
-        mapping.head = mapping.tail = new_node;
-        mapping.head->prev = NULL;
-        mapping.head->next = mapping.tail;
-        mapping.tail->prev = mapping.head;
-        mapping.head->next = NULL;
+    if (ku_mmu_mapping.head == NULL) {
+        ku_mmu_mapping.head = ku_mmu_mapping.tail = new_node;
+        ku_mmu_mapping.head->prev = NULL;
+        ku_mmu_mapping.head->next = ku_mmu_mapping.tail;
+        ku_mmu_mapping.tail->prev = ku_mmu_mapping.head;
+        ku_mmu_mapping.head->next = NULL;
         return;
     }
-    mapping.tail->next = new_node;
-    new_node->prev = mapping.tail;
-    mapping.tail = new_node;
+    ku_mmu_mapping.tail->next = new_node;
+    new_node->prev = ku_mmu_mapping.tail;
+    ku_mmu_mapping.tail = new_node;
 }
 int mapping_pop(char **result) {
-    mappinglist_node *head = mapping.head;
+    mappinglist_node *head = ku_mmu_mapping.head;
     if (head == NULL) {
         return -1;
     }
-    mapping.head = head->next;
+    ku_mmu_mapping.head = head->next;
     if (head->next != NULL) {
         head->next->prev = NULL;
         head->next = NULL;
@@ -152,31 +152,31 @@ int mapping_pop(char **result) {
 
 ///////////////////////////////////////////
 /* Swap space */
-void *swap_space;
+void *ku_mmu_swap_space;
 
 // swap free list
-freelist_node *swap_freelist;
+freelist_node *ku_mmu_swap_freelist;
 void swap_freelist_init(int mem_size) {
     freelist_node *curr = (freelist_node*) malloc(sizeof(freelist_node));
-    swap_freelist = curr;
+    ku_mmu_swap_freelist = curr;
     curr->addr = NULL;
     curr->next = NULL;
     for (int i = PAGE_SIZE; i < mem_size; i += PAGE_SIZE) {
         freelist_node *new_node = (freelist_node*) malloc(sizeof(freelist_node));
-        new_node->addr = swap_space + i;
+        new_node->addr = ku_mmu_swap_space + i;
         new_node->next = NULL;
         curr->next = new_node;
         curr = new_node;
     }
 }
 int swap_freelist_pop(void** addr) {
-    freelist_node *curr = swap_freelist->next;
+    freelist_node *curr = ku_mmu_swap_freelist->next;
     if (curr == NULL) {
         *addr = NULL;
         return -1;
     }
     *addr = curr->addr;
-    swap_freelist->next = curr->next;
+    ku_mmu_swap_freelist->next = curr->next;
     free(curr);
     return 0;
 }
@@ -211,16 +211,16 @@ int swap_freelist_pop(void** addr) {
  */
 void *ku_mmu_init(unsigned int mem_size, unsigned int swap_size) {
     /* Init pmem_space */
-    pmem_space = malloc(mem_size);
-    memset(pmem_space, 0, mem_size);
-    if (pmem_space == NULL) {
+    ku_mmu_pmem_space = malloc(mem_size);
+    memset(ku_mmu_pmem_space, 0, mem_size);
+    if (ku_mmu_pmem_space == NULL) {
         return 0;
     }
 
     /* Init swap_space */
-    swap_space = malloc(swap_size);
-    memset(swap_space, 0, swap_size);
-    if (swap_space == NULL) {
+    ku_mmu_swap_space = malloc(swap_size);
+    memset(ku_mmu_swap_space, 0, swap_size);
+    if (ku_mmu_swap_space == NULL) {
         return 0;
     }
     
@@ -229,7 +229,7 @@ void *ku_mmu_init(unsigned int mem_size, unsigned int swap_size) {
     swap_freelist_init(swap_size);
     mapping_init();
 
-    return pmem_space;
+    return ku_mmu_pmem_space;
 }
 
 /*
@@ -268,7 +268,7 @@ int ku_run_proc(char pid, void **ku_cr3) {
             };
             char mapped_pte = *mapped_pte_addr;
             int mapped_page_pfn = (mapped_pte & 0xFC);
-            void *page_addr = pmem_space + mapped_page_pfn;
+            void *page_addr = ku_mmu_pmem_space + mapped_page_pfn;
 
             // memory page -> swap page
             memcpy(swap_page, page_addr, PAGE_SIZE);
@@ -276,7 +276,7 @@ int ku_run_proc(char pid, void **ku_cr3) {
             memset(page_addr, 0, PAGE_SIZE);
 
             // swapped pte: 00000010
-            mapped_pte = ((swap_page - swap_space) >> 1) & 0xFE;
+            mapped_pte = ((swap_page - ku_mmu_swap_space) >> 1) & 0xFE;
             *mapped_pte_addr = mapped_pte; 
             
             addr = page_addr;
@@ -343,7 +343,7 @@ int ku_page_fault(char pid, char va) {
             };
             char mapped_pte = *mapped_pte_addr;
             int mapped_page_pfn = (mapped_pte & 0xFC);
-            void *page_addr = pmem_space + mapped_page_pfn;
+            void *page_addr = ku_mmu_pmem_space + mapped_page_pfn;
 
             // memory page -> swap page
             memcpy(swap_page, page_addr, PAGE_SIZE);
@@ -351,20 +351,20 @@ int ku_page_fault(char pid, char va) {
             memset(page_addr, 0, PAGE_SIZE);
 
             // swapped pte: 00000010
-            mapped_pte = ((swap_page - swap_space) >> 1) & 0xFE;
+            mapped_pte = ((swap_page - ku_mmu_swap_space) >> 1) & 0xFE;
             *mapped_pte_addr = mapped_pte; 
             
             new_pmd_addr = page_addr;
         }
 
         // pde: 00000101
-        pde = (new_pmd_addr - pmem_space) | 1;
+        pde = (new_pmd_addr - ku_mmu_pmem_space) | 1;
         *(char*)PDEAddr = pde;
     }
     int pde_pfn = (pde & 0xFC);
     
     // page middle directory
-    void *pmdbr = pmem_space + pde_pfn;
+    void *pmdbr = ku_mmu_pmem_space + pde_pfn;
     int pmd_idx = (va & 0x30) >> 4;
     void *PMDEAddr = pmdbr + pmd_idx;
     char pmde = *(char*)PMDEAddr;
@@ -390,7 +390,7 @@ int ku_page_fault(char pid, char va) {
             };
             char mapped_pte = *mapped_pte_addr;
             int mapped_page_pfn = (mapped_pte & 0xFC);
-            void *page_addr = pmem_space + mapped_page_pfn;
+            void *page_addr = ku_mmu_pmem_space + mapped_page_pfn;
 
             // memory page -> swap page
             memcpy(swap_page, page_addr, PAGE_SIZE);
@@ -398,20 +398,20 @@ int ku_page_fault(char pid, char va) {
             memset(page_addr, 0, PAGE_SIZE);
 
             // swapped pte: 00000010
-            mapped_pte = ((swap_page - swap_space) >> 1) & 0xFE;
+            mapped_pte = ((swap_page - ku_mmu_swap_space) >> 1) & 0xFE;
             *mapped_pte_addr = mapped_pte; 
             
             new_pt_addr = page_addr;
         }
 
         // pmde: 00001001
-        pmde = (new_pt_addr - pmem_space) | 1;
+        pmde = (new_pt_addr - ku_mmu_pmem_space) | 1;
         *(char*)PMDEAddr = pmde;
     }
     int pmde_pfn = (pmde & 0xFC);
 
     // page table
-    void *ptbr = pmem_space + pmde_pfn;
+    void *ptbr = ku_mmu_pmem_space + pmde_pfn;
     int pt_idx = (va & 0x0C) >> 2;
     void *PTEAddr = ptbr + pt_idx;
     char pte = *(char*)PTEAddr;
@@ -437,7 +437,7 @@ int ku_page_fault(char pid, char va) {
             };
             char mapped_pte = *mapped_pte_addr;
             int mapped_page_pfn = (mapped_pte & 0xFC);
-            void *page_addr = pmem_space + mapped_page_pfn;
+            void *page_addr = ku_mmu_pmem_space + mapped_page_pfn;
 
             // memory page -> swap page
             memcpy(swap_page, page_addr, PAGE_SIZE);
@@ -445,13 +445,13 @@ int ku_page_fault(char pid, char va) {
             memset(page_addr, 0, PAGE_SIZE);
 
             // swapped pte: 00000010
-            mapped_pte = ((swap_page - swap_space) >> 1) & 0xFE;
+            mapped_pte = ((swap_page - ku_mmu_swap_space) >> 1) & 0xFE;
             *mapped_pte_addr = mapped_pte; 
             
             new_page_addr = page_addr;
         };
         // pte: 00001101
-        pte = (new_page_addr - pmem_space) | 1;
+        pte = (new_page_addr - ku_mmu_pmem_space) | 1;
         *(char*)PTEAddr = pte;
 
         // finally append PTEAddr to mapping list
@@ -473,10 +473,10 @@ int ku_page_fault(char pid, char va) {
         };
         char mapped_pte = *mapped_pte_addr;
         int mapped_page_pfn = (mapped_pte & 0xFC);
-        void *mapped_page_addr = pmem_space + mapped_page_pfn;
+        void *mapped_page_addr = ku_mmu_pmem_space + mapped_page_pfn;
 
         int pte_pfn = ((pte & 0xFE) << 1);
-        void *pte_page_addr = swap_space + pte_pfn;
+        void *pte_page_addr = ku_mmu_swap_space + pte_pfn;
 
         
         // page memory swap
