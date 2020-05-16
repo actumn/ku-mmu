@@ -111,7 +111,6 @@ typedef struct mappinglist_node {
     struct mappinglist_node *next;
 } mappinglist_node;
 typedef struct mapplinglist {
-    int length;
     struct mappinglist_node *head;
     struct mappinglist_node *tail;
 } mappinglist;
