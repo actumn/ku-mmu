@@ -38,7 +38,7 @@ int main(int argc, char *argv[])
 	}
 
 	while(fscanf(fd, "%hhd %hhd", &fpid, &va) != EOF){
-
+		printf("%d %d\n", fpid, va);
 		if(pid != fpid){
 			if(ku_run_proc(fpid, &ku_cr3) == 0)
 				pid = fpid; /* context switch */
