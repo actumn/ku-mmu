@@ -1,3 +1,3 @@
 rm ku_cpu
 gcc -o ku_cpu ku_cpu.c ku_trav.o
-./ku_cpu input.txt 256 512
+./ku_cpu input.txt 52 512

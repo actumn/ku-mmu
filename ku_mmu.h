@@ -29,6 +29,8 @@
 #include <assert.h>
 #define PAGE_SIZE 4
 
+///////////////////////////////////////////
+/* Process control block */
 typedef struct task_struct {
     char pid;
     void *pdbr;
@@ -67,10 +69,11 @@ void task_struct_list_add(task_struct *new_task_struct) {
 }
 
 
+///////////////////////////////////////////
+/* Memory space */
+void *pmem_space;
 
-/* Memory */
-void *pmem_space, *swap_space;
-
+// Memory Freelist
 typedef struct freelist_node {
     void *addr;
     struct freelist_node *next;
@@ -81,7 +84,7 @@ void freelist_init(int mem_size) {
     freelist = curr;
     curr->addr = NULL;
     curr->next = NULL;
-    for (int i = 0; i < mem_size; i += PAGE_SIZE) {
+    for (int i = PAGE_SIZE; i < mem_size; i += PAGE_SIZE) {
         freelist_node *new_node = (freelist_node*) malloc(sizeof(freelist_node));
         new_node->addr = pmem_space + i;
         new_node->next = NULL;
@@ -100,16 +103,118 @@ int freelist_pop(void** addr) {
     free(curr);
     return 0;
 }
-int freelist_debug() {
+// int freelist_debug() {
+//     printf("mem_space: %p\n", pmem_space);
+//     freelist_node *curr = freelist;
+//     int i = 0;
+//     while (curr != NULL) {
+//         printf("free_list[%d]: %p\n", i, curr->addr);
+//         curr = curr->next;
+//         i += 1;
+//     }
+// }
+
+// Memory mapping list
+typedef struct mappinglist_node {
+    struct mappinglist_node *prev;
+    char *pte;
+    struct mappinglist_node *next;
+} mappinglist_node;
+typedef struct mapplinglist {
+    struct mappinglist_node *head;
+    struct mappinglist_node *tail;
+} mappinglist;
+mappinglist mapping;
+void mapping_init() {
+    mapping.head = NULL;
+    mapping.tail = NULL;
+}
+void mapping_append(char *pte) {
+    mappinglist_node *new_node = (mappinglist_node *)malloc(sizeof(mappinglist_node));
+    new_node->pte = pte;
+
+    if (mapping.head == NULL) {
+        mapping.head = mapping.tail = new_node;
+        mapping.head->prev = NULL;
+        mapping.head->next = mapping.tail;
+        mapping.tail->prev = mapping.head;
+        mapping.head->next = NULL;
+        return;
+    }
+    mapping.tail->next = new_node;
+    new_node->prev = mapping.tail;
+    mapping.tail = new_node;
+}
+char* mapping_pop() {
+    mappinglist_node *head = mapping.head;
+    char* result = head->pte;
+    head->next->prev = NULL;
+    mapping.head = head->next;
+    free(head);
+    return result;
+}
+int mapping_debug() {
     printf("mem_space: %p\n", pmem_space);
-    freelist_node *curr = freelist;
+    mappinglist_node *curr = mapping.head;
     int i = 0;
     while (curr != NULL) {
-        printf("free_list[%d]: %p\n", i, curr->addr);
+        printf("mapping[%d]: %p, value: %x\n", i, curr->pte, *curr->pte);
         curr = curr->next;
         i += 1;
     }
 }
+
+///////////////////////////////////////////
+/* Swap space */
+void *swap_space;
+
+// swap free list
+freelist_node *swap_freelist;
+void swap_freelist_init(int mem_size) {
+    freelist_node *curr = (freelist_node*) malloc(sizeof(freelist_node));
+    swap_freelist = curr;
+    curr->addr = NULL;
+    curr->next = NULL;
+    for (int i = PAGE_SIZE; i < mem_size; i += PAGE_SIZE) {
+        freelist_node *new_node = (freelist_node*) malloc(sizeof(freelist_node));
+        new_node->addr = swap_space + i;
+        new_node->next = NULL;
+        curr->next = new_node;
+        curr = new_node;
+    }
+}
+int swap_freelist_pop(void** addr) {
+    freelist_node *curr = swap_freelist->next;
+    if (curr == NULL) {
+        *addr = NULL;
+        return -1;
+    }
+    *addr = curr->addr;
+    swap_freelist->next = curr->next;
+    free(curr);
+    return 0;
+}
+// int swap_freelist_debug() {
+//     printf("mem_space: %p\n", swap_space);
+//     freelist_node *curr = swap_freelist;
+//     int i = 0;
+//     while (curr != NULL) {
+//         printf("free_list[%d]: %p\n", i, curr->addr);
+//         curr = curr->next;
+//         i += 1;
+//     }
+// }
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+ *
+ * Main Functions
+ *  - ku_mmu_init: Function to initialize of user-level memory, swap space, freelist
+ *  - ku_run_proc: Function to simulate context switching
+ *  - ku_page_fault: Function to handle page fault 
+ */
+
 
 /*
  * 초기화 때 1번만 호출
@@ -145,7 +250,9 @@ void *ku_mmu_init(unsigned int mem_size, unsigned int swap_size) {
     
     /* Init freelist */
     freelist_init(mem_size);
-    
+    swap_freelist_init(swap_size);
+    mapping_init();
+
     return pmem_space;
 }
 
@@ -214,14 +321,17 @@ int ku_page_fault(char pid, char va) {
     char pde = *(char*)PDEAddr; 
     // printf("PDEAddr: %p, value: %x\n", PDEAddr, *(char*)PDEAddr);
     if (pde == 0x00) {
-        void* new_pdm_addr = NULL;
-        if (freelist_pop(&new_pdm_addr) != 0) {
+        // Page fault: Not allocated page middle directory.
+        // Allocate new page middle directory 
+        void* new_pmd_addr = NULL;
+        if (freelist_pop(&new_pmd_addr) != 0) {
             // TODO: swap out
+            return -1;
         }
-        assert(((new_pdm_addr - pmem_space) & 0x03) == 0);
+        assert(((new_pmd_addr - pmem_space) & 0x03) == 0);
 
         // pde: 00000101
-        pde = (new_pdm_addr - pmem_space) | 1;
+        pde = (new_pmd_addr - pmem_space) | 1;
         *(char*)PDEAddr = pde;
         // printf("PDEAddr: %p, value: %x\n", PDEAddr, *(char*)PDEAddr);
         // printf("%x\n", pde);
@@ -235,9 +345,12 @@ int ku_page_fault(char pid, char va) {
     char pmde = *(char*)PMDEAddr;
     // printf("PMDEAddr: %p, value: %x\n", PMDEAddr, *(char*)PMDEAddr);
     if (pmde == 0x00) {
+        // Page fault: Not allocated page table.
+        // Allocate new page table
         void* new_pt_addr = NULL;
         if (freelist_pop(&new_pt_addr) != 0) {
             // TODO: swap out
+            return -1;
         }
         assert(((new_pt_addr - pmem_space) & 0x03) == 0);
 
@@ -252,28 +365,93 @@ int ku_page_fault(char pid, char va) {
     // page table
     void *ptbr = pmem_space + pmde_pfn;
     int pt_idx = (va & 0x0C) >> 2;
-    void *PTAddr = ptbr + pt_idx;
-    char pte = *(char*)PTAddr;
-    // printf("PTAddr: %p, value: %x\n", PTAddr, *(char*)PTAddr);
+    void *PTEAddr = ptbr + pt_idx;
+    char pte = *(char*)PTEAddr;
+    // printf("PTEAddr: %p, value: %x\n", PTEAddr, *(char*)PTEAddr);
     if (pte == 0x00) {
-        void* new_pt_addr = NULL;
-        if (freelist_pop(&new_pt_addr) != 0) {
-            // TODO: swap out
+        // printf("Page fault: Not allocated page.\n");
+        // Page fault: Not allocated page.
+        // Allocate new page
+        void* new_page_addr = NULL;
+        if (freelist_pop(&new_page_addr) != 0) {
+            // printf("Swap out existing page.\n");
+            // If no more space on memory
+            // Swap out existing page.
+            void *swap_page = NULL;
+            if (swap_freelist_pop(&swap_page)) {
+                // No more swap space 
+                // Error
+                // printf("error11\n");
+                return -1;
+            }
+            // printf("swap freelist: %p, %x\n", swap_page, *(int*)swap_page);
+            
+            char *mapped_pte_addr = mapping_pop();
+            // printf("mapping swap out: %p, %x\n", mapped_pte_addr, *mapped_pte_addr);
+            char mapped_pte = *mapped_pte_addr;
+            int mapped_page_pfn = (mapped_pte & 0xFC);
+            void *page_addr = pmem_space + mapped_page_pfn;
+            // printf("mapping swap out page: %p, %x, %p, %x\n", mapped_pte_addr, mapped_page_pfn, page_addr, *(int*)page_addr);
+
+            // memory page -> swap page
+            memcpy(swap_page, page_addr, PAGE_SIZE);
+            // set 0 on page
+            memset(page_addr, 0, PAGE_SIZE);
+
+            // swapped pte: 00000010
+            mapped_pte = ((swap_page - swap_space) >> 1) & 0xFE;
+            *mapped_pte_addr = mapped_pte; 
+            // printf("mapped_pte_addr: %p\n", mapped_pte_addr);
+            
+            new_page_addr = page_addr;
         };
-        assert(((new_pt_addr - pmem_space) & 0x03) == 0);
+        assert(((new_page_addr - pmem_space) & 0x03) == 0);
 
         // pte: 00001101
-        pte = (new_pt_addr - pmem_space) | 1;
-        *(char*)PTAddr = pte;
-        // printf("PTAddr: %p, value: %x\n", PTAddr, *(char*)PTAddr);
+        pte = (new_page_addr - pmem_space) | 1;
+        *(char*)PTEAddr = pte;
+        // printf("PTEAddr: %p, value: %x\n", PTEAddr, *(char*)PTEAddr);
         // printf("%x\n", pte);
+
+        // finally append PTEAddr to mapping list
+        mapping_append((char*)PTEAddr);
+
+        return 0;
     }
     if (pte == 0x01) {
         // exception case. nothing to do.
+        // printf("error22\n");
         return -1;
     }
     if ((pte & 0x01) == 0) {
-        // TODO:: swap in 구현
+        // printf("Page fault: data in swap space.\n");
+        // Page fault: data in swap space
+        char *mapped_pte_addr = mapping_pop();
+        // printf("mapping swap out: %p, %x\n", mapped_pte_addr, *mapped_pte_addr);
+        char mapped_pte = *mapped_pte_addr;
+        int mapped_page_pfn = (mapped_pte & 0xFC);
+        void *mapped_page_addr = pmem_space + mapped_page_pfn;
+        // printf("mapped_page_addr: %p\n", mapped_page_addr);
+
+        // printf("PTEAddr: %p, value: %x\n", PTEAddr, *(char*)PTEAddr);        
+        int pte_pfn = ((pte & 0xFE) << 1);
+        void *pte_page_addr = swap_space + pte_pfn;
+        // printf("pte_page_addr: %p\n", pte_page_addr);
+        
+        
+        // page memory swap
+        char temp_page_buffer[PAGE_SIZE];
+        memcpy(temp_page_buffer, mapped_page_addr, PAGE_SIZE);
+        memcpy(mapped_page_addr, pte_page_addr, PAGE_SIZE);
+        memcpy(pte_page_addr, temp_page_buffer, PAGE_SIZE);
+        
+        *mapped_pte_addr = (pte_pfn >> 1) & 0xFE;
+        *(char*)PTEAddr = mapped_page_pfn | 1;
+        // printf("after mapping swap out: %p, %x\n", mapped_pte_addr, *mapped_pte_addr);
+        // printf("after PTEAddr: %p, value: %x\n", PTEAddr, *(char*)PTEAddr);        
+
+        mapping_append((char*)PTEAddr);
+        return 0;
     }
     // int pt_pfn = (pte & 0xFC);
 
@@ -282,5 +460,7 @@ int ku_page_fault(char pid, char va) {
     // char *physical_memory = (char*)(page + offset);
     // printf("%d\n", (int) *physical_memory);
     
-    return 0;
+    // Normal case: Not executed here.  
+    // printf("error33\n");
+    return -1;
 }
