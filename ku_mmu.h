@@ -26,7 +26,6 @@
  */
 
 #include <string.h>
-#include <assert.h>
 #define PAGE_SIZE 4
 
 ///////////////////////////////////////////
@@ -357,7 +356,6 @@ int ku_page_fault(char pid, char va) {
             
             new_pmd_addr = page_addr;
         }
-        assert(((new_pmd_addr - pmem_space) & 0x03) == 0);
 
         // pde: 00000101
         pde = (new_pmd_addr - pmem_space) | 1;
@@ -405,7 +403,6 @@ int ku_page_fault(char pid, char va) {
             
             new_pt_addr = page_addr;
         }
-        assert(((new_pt_addr - pmem_space) & 0x03) == 0);
 
         // pmde: 00001001
         pmde = (new_pt_addr - pmem_space) | 1;
@@ -453,8 +450,6 @@ int ku_page_fault(char pid, char va) {
             
             new_page_addr = page_addr;
         };
-        assert(((new_page_addr - pmem_space) & 0x03) == 0);
-
         // pte: 00001101
         pte = (new_page_addr - pmem_space) | 1;
         *(char*)PTEAddr = pte;
